@@ -2,21 +2,21 @@ package domain
 
 import (
 	"github.com/google/uuid"
-	lazy "github.com/quintans/delta"
+	"github.com/quintans/delta"
 )
 
 // Car belongs to the person aggregate and therefore does not have its own repository nor versioning.
 type Car struct {
 	id   uuid.UUID
 	make string
-	kms  *lazy.Eager[int]
+	kms  *delta.Scalar[int]
 }
 
 func NewCar(make string, kms int) *Car {
 	return &Car{
 		id:   uuid.New(),
 		make: make,
-		kms:  lazy.NewEager(kms),
+		kms:  delta.New(kms),
 	}
 }
 
@@ -24,7 +24,7 @@ func HydrateCar(id uuid.UUID, make string, kms int) *Car {
 	return &Car{
 		id:   id,
 		make: make,
-		kms:  lazy.NewEager(kms),
+		kms:  delta.New(kms),
 	}
 }
 
@@ -46,7 +46,7 @@ func (c *Car) Kms() int {
 }
 
 type CarDelta struct {
-	Kms *lazy.Change[int]
+	Kms *delta.Change[int]
 }
 
 func (c *Car) Delta() *CarDelta {

@@ -3,7 +3,7 @@ package repository
 import (
 	"fmt"
 
-	lazy "github.com/quintans/delta"
+	"github.com/quintans/delta"
 	"github.com/quintans/delta/example/domain"
 	"github.com/quintans/delta/example/ports"
 
@@ -116,28 +116,36 @@ func (r *Repository) Update(id uuid.UUID, callback func(p *domain.Person) error)
 	record.name = p.Name()
 	record.age = p.Age()
 
-	delta := p.Delta()
-	if delta != nil {
+	changes := p.Delta()
+	if changes != nil {
 		// only save fields that have changed
-		if delta.Photo != nil {
-			record.photo = delta.Photo.Value
+		if changes.Photo != nil {
+			record.photo = changes.Photo.Value
 			fmt.Println("*** photo changed to:", string(record.photo))
 		}
-		if delta.Cars != nil {
-			for item := range delta.Cars {
-				car := item.Value
-				switch item.Status {
-				case lazy.Removed:
-					fmt.Println("*** car removed:", car.ID())
-					delete(r.cars, car.ID())
-				case lazy.Added, lazy.Modified:
-					fmt.Println("*** car added/modified:", car.ID(), ", added?:", item.Status == lazy.Added)
-					if err := r.saveCar(p.ID(), car, item.Status == lazy.Added); err != nil {
-						return fmt.Errorf("failed to save car: %w", err)
-					}
+		if changes.Cars.Reset {
+			fmt.Println("*** cars reset")
+			// remove all existing cars
+			for carID, carRecord := range r.cars {
+				if carRecord.ownerID == p.ID() {
+					delete(r.cars, carID)
 				}
 			}
 		}
+		for item := range changes.Cars.Items {
+			car := item.Value
+			switch item.Status {
+			case delta.Removed:
+				fmt.Println("*** car removed:", car.ID())
+				delete(r.cars, car.ID())
+			case delta.Added, delta.Modified:
+				fmt.Println("*** car added/modified:", car.ID(), ", added?:", item.Status == delta.Added)
+				if err := r.saveCar(p.ID(), car, item.Status == delta.Added); err != nil {
+					return fmt.Errorf("failed to save car: %w", err)
+				}
+			}
+		}
+
 	}
 	return nil
 }
@@ -163,11 +171,12 @@ func (r *Repository) getByID(id uuid.UUID) (*domain.Person, int, error) {
 	if !exists {
 		return nil, 0, fmt.Errorf("person not found")
 	}
-	photoLazy := lazy.NewLazy(func() ([]byte, error) {
+	photoLazy := delta.NewLazy(func() ([]byte, error) {
 		fmt.Println("*** Lazy-loading photo")
 		return record.photo, nil
 	})
-	carLazy := lazy.NewLazySlice(func(id uuid.UUID) ([]*domain.Car, error) {
+	carLazy := delta.NewLazySlice(func(id uuid.UUID) ([]*domain.Car, error) {
+		// if id is uuid.Nil, load all cars for the owner
 		if id == uuid.Nil {
 			fmt.Println("*** Lazy-loading cars")
 			var cars []*domain.Car

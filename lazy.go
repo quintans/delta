@@ -7,20 +7,20 @@ import (
 	"github.com/quintans/ds/collections/linkedmap"
 )
 
-// ============ Lazy ======================
+// ============ Scalar ======================
 
-type Lazy[T any] struct {
+type LazyScalar[T any] struct {
 	isSet   bool
 	value   T
 	fn      func() (T, error)
 	isDirty bool
 }
 
-func NewLazy[T any](fn func() (T, error)) *Lazy[T] {
-	return &Lazy[T]{isSet: false, fn: fn}
+func NewLazy[T any](fn func() (T, error)) *LazyScalar[T] {
+	return &LazyScalar[T]{isSet: false, fn: fn}
 }
 
-func (v *Lazy[T]) Get() (T, error) {
+func (v *LazyScalar[T]) Get() (T, error) {
 	if v.isSet {
 		return v.value, nil
 	}
@@ -34,7 +34,7 @@ func (v *Lazy[T]) Get() (T, error) {
 	return v.value, nil
 }
 
-func (v *Lazy[T]) Set(value T) {
+func (v *LazyScalar[T]) Set(value T) {
 	v.value = value
 	v.isSet = true
 	v.isDirty = true
@@ -44,27 +44,27 @@ type Change[T any] struct {
 	Value T
 }
 
-func (v *Lazy[T]) Change() *Change[T] {
+func (v *LazyScalar[T]) Change() *Change[T] {
 	if v.isDirty {
 		return &Change[T]{Value: v.value}
 	}
 	return nil
 }
 
-type Eager[T any] struct {
-	Lazy[T]
+type Scalar[T any] struct {
+	LazyScalar[T]
 }
 
-func NewEager[T any](value T) *Eager[T] {
-	return &Eager[T]{
-		Lazy: Lazy[T]{
+func New[T any](value T) *Scalar[T] {
+	return &Scalar[T]{
+		LazyScalar: LazyScalar[T]{
 			isSet: true,
 			value: value,
 		},
 	}
 }
 
-func (e *Eager[T]) Get() T {
+func (e *Scalar[T]) Get() T {
 	return e.value
 }
 
@@ -89,25 +89,26 @@ type Item[T Identifiable[I], I comparable] struct {
 	status Status
 }
 
-type Slice[T Identifiable[I], I comparable] struct {
+type LazySlice[T Identifiable[I], I comparable] struct {
 	isSet   bool
 	isReset bool
 	fetched *linkedmap.Map[I, Item[T, I]]
-	fn      func(I) ([]T, error)
+	fn      func(I) ([]T, error) // function to load items by ID. If ID is zero value, load all items.
 }
 
-func NewLazySlice[T Identifiable[I], I comparable](fn func(I) ([]T, error)) *Slice[T, I] {
-	return &Slice[T, I]{
+func NewLazySlice[T Identifiable[I], I comparable](fn func(I) ([]T, error)) *LazySlice[T, I] {
+	return &LazySlice[T, I]{
 		isSet:   false,
 		fn:      fn,
 		fetched: linkedmap.New[I, Item[T, I]](),
 	}
 }
 
-func (s *Slice[T, I]) GetAll() (iter.Seq[T], error) {
+func (s *LazySlice[T, I]) GetAll() (iter.Seq[T], error) {
 	if s.isSet {
 		return filterRemoved(s.fetched.Values()), nil
 	}
+	// load all items when zero value is passed
 	var zero I
 	values, err := s.fn(zero)
 	if err != nil {
@@ -142,7 +143,7 @@ func filterRemoved[T Identifiable[I], I comparable](it iter.Seq[Item[T, I]]) ite
 
 var ErrNotFound = errors.New("item not found")
 
-func (s *Slice[T, I]) Get(id I) (T, error) {
+func (s *LazySlice[T, I]) Get(id I) (T, error) {
 	item, exists := s.fetched.Get(id)
 	if exists {
 		if item.status == Absent || item.status == Removed {
@@ -170,7 +171,7 @@ func (s *Slice[T, I]) Get(id I) (T, error) {
 	return values[0], nil
 }
 
-func (s *Slice[T, I]) SetAll(value []T) {
+func (s *LazySlice[T, I]) SetAll(value []T) {
 	s.isReset = true
 	s.isSet = true
 	s.fetched = linkedmap.New(linkedmap.WithCapacity[I, Item[T, I]](len(value)))
@@ -179,7 +180,7 @@ func (s *Slice[T, I]) SetAll(value []T) {
 	}
 }
 
-func (s *Slice[T, I]) Set(value T) {
+func (s *LazySlice[T, I]) Set(value T) {
 	item, exists := s.fetched.Get(value.ID())
 	if exists {
 		status := item.status
@@ -195,13 +196,13 @@ func (s *Slice[T, I]) Set(value T) {
 	s.fetched.Put(value.ID(), Item[T, I]{value: value, status: Added})
 }
 
-func (s *Slice[T, I]) Clear() {
+func (s *LazySlice[T, I]) Clear() {
 	s.isSet = true
 	s.isReset = true
 	s.fetched.Clear()
 }
 
-func (s *Slice[T, I]) Remove(id I) bool {
+func (s *LazySlice[T, I]) Remove(id I) bool {
 	item, exists := s.fetched.Get(id)
 	if exists {
 		if item.status == Added {
@@ -213,8 +214,13 @@ func (s *Slice[T, I]) Remove(id I) bool {
 	return exists
 }
 
-func (s *Slice[T, I]) IsReset() bool {
+func (s *LazySlice[T, I]) IsReset() bool {
 	return s.isReset
+}
+
+type Changes[T Identifiable[I], I comparable] struct {
+	Reset bool
+	Items iter.Seq[SliceChange[I, T]]
 }
 
 type SliceChange[I comparable, T any] struct {
@@ -223,7 +229,14 @@ type SliceChange[I comparable, T any] struct {
 	Status Status
 }
 
-func (s *Slice[T, I]) Changes() iter.Seq[SliceChange[I, T]] {
+func (s *LazySlice[T, I]) Changes() Changes[T, I] {
+	return Changes[T, I]{
+		Reset: s.isReset,
+		Items: s.changesIterator(),
+	}
+}
+
+func (s *LazySlice[T, I]) changesIterator() iter.Seq[SliceChange[I, T]] {
 	it := s.fetched.Entries()
 	return func(yield func(SliceChange[I, T]) bool) {
 		for k, v := range it {
@@ -242,28 +255,28 @@ func (s *Slice[T, I]) Changes() iter.Seq[SliceChange[I, T]] {
 	}
 }
 
-type EagerSlice[T Identifiable[I], I comparable] struct {
-	Slice[T, I]
+type Slice[T Identifiable[I], I comparable] struct {
+	LazySlice[T, I]
 }
 
-func NewEagerSlice[T Identifiable[I], I comparable](value []T) *EagerSlice[T, I] {
+func NewSlice[T Identifiable[I], I comparable](value []T) *Slice[T, I] {
 	fetched := linkedmap.New(linkedmap.WithCapacity[I, Item[T, I]](len(value)))
 	for _, v := range value {
 		fetched.Put(v.ID(), Item[T, I]{value: v, status: Unchanged})
 	}
-	return &EagerSlice[T, I]{
-		Slice: Slice[T, I]{
+	return &Slice[T, I]{
+		LazySlice: LazySlice[T, I]{
 			isSet:   true,
 			fetched: fetched,
 		},
 	}
 }
 
-func (e *EagerSlice[T, I]) GetAll() iter.Seq[T] {
+func (e *Slice[T, I]) GetAll() iter.Seq[T] {
 	return filterRemoved(e.fetched.Values())
 }
 
-func (e *EagerSlice[T, I]) Get(id I) T {
+func (e *Slice[T, I]) Get(id I) T {
 	item, exists := e.fetched.Get(id)
 	if exists {
 		return item.value

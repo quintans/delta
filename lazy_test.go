@@ -33,7 +33,7 @@ func TestDelta_Get_Eager(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			eager := delta.NewEager(tt.value)
+			eager := delta.New(tt.value)
 			result := eager.Get()
 			assert.Equal(t, tt.expected, result)
 		})
@@ -41,7 +41,7 @@ func TestDelta_Get_Eager(t *testing.T) {
 }
 
 func TestDelta_Set_Eager(t *testing.T) {
-	eager := delta.NewEager(1)
+	eager := delta.New(1)
 	change := eager.Change()
 	assert.Nil(t, change)
 
@@ -109,7 +109,7 @@ func TestDeltaSlice_GetAll_Eager(t *testing.T) {
 		{id: "2", name: "entity2"},
 	}
 
-	eager := delta.NewEagerSlice(entities)
+	eager := delta.NewSlice(entities)
 	seq := eager.GetAll()
 	result := slices.Collect(seq)
 	require.Len(t, result, 2)
@@ -123,7 +123,7 @@ func TestDeltaSlice_Get_Eager(t *testing.T) {
 		{id: "2", name: "entity2"},
 	}
 
-	eager := delta.NewEagerSlice(entities)
+	eager := delta.NewSlice(entities)
 	result := eager.Get("1")
 	assert.Equal(t, "1", result.id)
 	assert.Equal(t, "entity1", result.name)
@@ -244,7 +244,9 @@ func TestDeltaSlice_GetAll_WithPendingAdds(t *testing.T) {
 	assert.True(t, ids["1"])
 	assert.True(t, ids["2"])
 
-	changes := slices.Collect(lazySlice.Changes())
+	x := lazySlice.Changes()
+	assert.False(t, x.Reset)
+	changes := slices.Collect(x.Items)
 	require.Len(t, changes, 1)
 	assert.Equal(t, "2", changes[0].ID)
 	assert.Equal(t, delta.Added, changes[0].Status)
@@ -288,7 +290,9 @@ func TestDeltaSlice_GetAll_WithPendingRemoves(t *testing.T) {
 	require.Len(t, result, 1)
 	assert.Equal(t, "2", result[0].ID())
 
-	changes := slices.Collect(lazySlice.Changes())
+	x := lazySlice.Changes()
+	assert.False(t, x.Reset)
+	changes := slices.Collect(x.Items)
 	require.Len(t, changes, 1)
 	assert.Equal(t, "1", changes[0].ID)
 	assert.Equal(t, delta.Removed, changes[0].Status)
@@ -342,7 +346,9 @@ func TestDeltaSlice_GetAll_WithPendingAddsAndRemoves(t *testing.T) {
 	assert.True(t, ids["2"])
 	assert.True(t, ids["3"])
 
-	changes := slices.Collect(lazySlice.Changes())
+	x := lazySlice.Changes()
+	assert.False(t, x.Reset)
+	changes := slices.Collect(x.Items)
 	require.Len(t, changes, 2)
 	assert.Equal(t, "1", changes[0].ID)
 	assert.Equal(t, delta.Removed, changes[0].Status)
@@ -392,7 +398,9 @@ func TestDeltaSlice_GetAll_WithSamePendingAddsAndRemoves(t *testing.T) {
 	require.Len(t, result, 1)
 	assert.Equal(t, "1", result[0].ID())
 
-	changes := slices.Collect(lazySlice.Changes())
+	x := lazySlice.Changes()
+	assert.False(t, x.Reset)
+	changes := slices.Collect(x.Items)
 	require.Len(t, changes, 0)
 }
 
@@ -444,7 +452,9 @@ func TestDeltaSlice_GetAll_WithSamePendingRemovesAndAdds(t *testing.T) {
 	require.NotNil(t, entity2)
 	assert.Equal(t, "entity2_new", entity2.name)
 
-	changes := slices.Collect(lazySlice.Changes())
+	x := lazySlice.Changes()
+	assert.False(t, x.Reset)
+	changes := slices.Collect(x.Items)
 	require.Len(t, changes, 1)
 	assert.Equal(t, "2", changes[0].ID)
 	assert.Equal(t, delta.Modified, changes[0].Status)
@@ -481,7 +491,9 @@ func TestDeltaSlice_Set(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "entity2_new", result.name)
 
-	changes := slices.Collect(lazySlice.Changes())
+	x := lazySlice.Changes()
+	assert.False(t, x.Reset)
+	changes := slices.Collect(x.Items)
 	require.Len(t, changes, 1)
 	assert.Equal(t, "2", changes[0].ID)
 	assert.Equal(t, delta.Added, changes[0].Status)
@@ -495,7 +507,9 @@ func TestDeltaSlice_Set(t *testing.T) {
 	assert.Equal(t, "1", resultAll[1].ID())
 	assert.Equal(t, "entity1", resultAll[1].name)
 
-	changes = slices.Collect(lazySlice.Changes())
+	x = lazySlice.Changes()
+	assert.False(t, x.Reset)
+	changes = slices.Collect(x.Items)
 	require.Len(t, changes, 1)
 	assert.Equal(t, "2", changes[0].ID)
 	assert.Equal(t, delta.Modified, changes[0].Status)
@@ -516,7 +530,9 @@ func TestDeltaSlice_SetAll(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "entity1", result.name)
 
-	changes := slices.Collect(lazySlice.Changes())
+	x := lazySlice.Changes()
+	assert.True(t, x.Reset)
+	changes := slices.Collect(x.Items)
 	require.Len(t, changes, 2)
 	assert.Equal(t, "1", changes[0].Value.ID())
 	assert.Equal(t, delta.Added, changes[0].Status)

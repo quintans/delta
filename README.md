@@ -46,7 +46,7 @@ carChanges := cars.Changes()
 
 ## Core Components
 
-### Lazy[T]
+### LazyScalar[T]
 
 Lazy loading container for single values:
 
@@ -58,7 +58,7 @@ lazy := delta.NewLazy(func() (string, error) {
 })
 
 // Create with immediate value
-eager := delta.NewEager("immediate value")
+eager := delta.New("immediate value")
 
 // Access (loads once, caches result)
 value, err := lazy.Get()
@@ -72,7 +72,7 @@ if change := lazy.Change(); change != nil {
 }
 ```
 
-### Slice[T, I]
+### LazySlice[T, I]
 
 Lazy loading container for collections with change tracking:
 
@@ -102,7 +102,8 @@ cars.Clear()           // Clear all
 cars.SetAll(newCars)   // Replace all
 
 // Track changes
-for change := range cars.Changes() {
+changes := cars.Changes()
+for change := range changes.Items {
     switch change.Status {
     case delta.Added:
         fmt.Printf("Added: %v", change.Value)
@@ -123,17 +124,19 @@ type Person struct {
     id    uuid.UUID
     name  string
     age   int
-    photo *delta.Lazy[[]byte]
-    cars  *delta.Slice[*Car, uuid.UUID]
+    photo *delta.LazyScalar[[]byte]
+    cars  *delta.LazySlice[*Car, uuid.UUID]
 }
 
 func NewPerson(name string, age int, photo []byte) *Person {
+    photoScalar := delta.New(photo)
+    carsSlice := delta.NewSlice([]*Car{})
     return &Person{
         id:    uuid.New(),
         name:  name,
         age:   age,
-        photo: delta.NewEager(photo).Lazy,
-        cars:  delta.NewEagerSlice([]*Car{}).Slice,
+        photo: &photoScalar.LazyScalar,
+        cars:  &carsSlice.LazySlice,
     }
 }
 
@@ -148,7 +151,7 @@ func (p *Person) BuyCar(car *Car) {
 // Get delta for persistence
 type PersonDelta struct {
     Photo *delta.Change[[]byte]
-    Cars  iter.Seq[delta.SliceChange[uuid.UUID, *Car]]
+    Cars  delta.Changes[*Car, uuid.UUID]
 }
 
 func (p *Person) Delta() *PersonDelta {
@@ -183,7 +186,7 @@ func (r *Repository) Update(id uuid.UUID, fn func(*Person) error) error {
 
 - **Aggregates**: Use lazy fields for expensive operations (photos, large collections)
 - **DTOs**: Resolve all lazy fields eagerly for data transfer
-- **Repository Create**: Eagerly instantiate all lazy fields with `NewEager*`
+- **Repository Create**: Eagerly instantiate all lazy fields with `New` and `NewSlice`
 - **Repository Update**: Use delta tracking for efficient persistence
 - **Repository Queries**: Return DTOs with resolved data
 

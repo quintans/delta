@@ -2,10 +2,9 @@ package domain
 
 import (
 	"fmt"
-	"iter"
 	"slices"
 
-	lazy "github.com/quintans/delta"
+	"github.com/quintans/delta"
 
 	"github.com/google/uuid"
 )
@@ -14,23 +13,23 @@ type Person struct {
 	id    uuid.UUID
 	name  string
 	age   int
-	photo *lazy.Lazy[[]byte]           // lazy-loaded photo
-	cars  *lazy.Slice[*Car, uuid.UUID] // lazy-loaded cars
+	photo *delta.LazyScalar[[]byte]         // lazy-loaded photo
+	cars  *delta.LazySlice[*Car, uuid.UUID] // lazy-loaded cars
 }
 
 func NewPerson(name string, age int, photo []byte) *Person {
-	photoLazy := lazy.NewEager(photo)
-	carsLazy := lazy.NewEagerSlice[*Car, uuid.UUID]([]*Car{})
+	photoLazy := delta.New(photo)
+	carsLazy := delta.NewSlice[*Car, uuid.UUID]([]*Car{})
 	return &Person{
 		id:    uuid.New(),
 		name:  name,
 		age:   age,
-		photo: &photoLazy.Lazy,
-		cars:  &carsLazy.Slice,
+		photo: &photoLazy.LazyScalar,
+		cars:  &carsLazy.LazySlice,
 	}
 }
 
-func HydratePerson(id uuid.UUID, name string, age int, photo *lazy.Lazy[[]byte], cars *lazy.Slice[*Car, uuid.UUID]) *Person {
+func HydratePerson(id uuid.UUID, name string, age int, photo *delta.LazyScalar[[]byte], cars *delta.LazySlice[*Car, uuid.UUID]) *Person {
 	return &Person{
 		id:    id,
 		name:  name,
@@ -100,8 +99,8 @@ func (p *Person) Greet() string {
 }
 
 type PersonDelta struct {
-	Photo *lazy.Change[[]byte]
-	Cars  iter.Seq[lazy.SliceChange[uuid.UUID, *Car]]
+	Photo *delta.Change[[]byte]
+	Cars  delta.Changes[*Car, uuid.UUID]
 }
 
 func (p *Person) Delta() *PersonDelta {
