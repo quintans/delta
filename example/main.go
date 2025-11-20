@@ -38,10 +38,13 @@ func main() {
 	}
 	fmt.Printf(
 		"Retrieved Person: ID=%s, Name=%s, Age=%d\n",
-		retrievedPerson.ID, retrievedPerson.Name, retrievedPerson.Age,
+		retrievedPerson.ID(), retrievedPerson.Name(), retrievedPerson.Age(),
 	)
 
-	photo := retrievedPerson.Photo
+	photo, err := retrievedPerson.Photo()
+	if err != nil {
+		panic(err)
+	}
 	fmt.Printf("Retrieved Person photo: %s\n", photo)
 
 	cars, err := retrievedPerson.Cars()
@@ -50,7 +53,7 @@ func main() {
 	}
 	fmt.Println("Retrieved Person Cars:")
 	for _, car := range cars {
-		fmt.Printf(" - ID=%s, Make=%s, Kms=%d\n", car.ID, car.Make, car.Kms)
+		fmt.Printf(" - ID=%s, Make=%s, Kms=%d\n", car.ID(), car.Make(), car.Kms())
 	}
 
 	// Update the person
