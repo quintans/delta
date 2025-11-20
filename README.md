@@ -25,8 +25,12 @@ photoLoader := func() ([]byte, error) {
 photo := delta.NewLazy(photoLoader)
 
 // Lazy slice with change tracking
+// The function receives an ID parameter: if zero value, load all items; otherwise load specific item
 carsLoader := func(id uuid.UUID) ([]*Car, error) {
-    return loadCarsFromDatabase(id)
+    if id == uuid.Nil {
+        return loadAllCarsFromDatabase()
+    }
+    return loadCarFromDatabase(id)
 }
 cars := delta.NewLazySlice(carsLoader)
 
@@ -84,15 +88,23 @@ type Car struct {
 
 func (c *Car) ID() uuid.UUID { return c.id }
 
-// Create lazy slice
+// Create lazy slice with loader function
+// The loader receives an ID: if zero value (uuid.Nil), load all; otherwise load specific item
 cars := delta.NewLazySlice(func(id uuid.UUID) ([]*Car, error) {
-    return repository.LoadCars(id)
+    if id == uuid.Nil {
+        return repository.LoadAllCars()
+    }
+    car, err := repository.LoadCar(id)
+    if err != nil {
+        return nil, err
+    }
+    return []*Car{car}, nil
 })
 
 // Access all items (loads on first access)
 allCars, err := cars.GetAll()
 
-// Access specific item
+// Access specific item (lazy loads if not already loaded)
 car, err := cars.Get(carId)
 
 // Modifications
@@ -121,22 +133,38 @@ for change := range changes.Items {
 
 ```go
 type Person struct {
-    id    uuid.UUID
-    name  string
-    age   int
-    photo *delta.LazyScalar[[]byte]
-    cars  *delta.LazySlice[*Car, uuid.UUID]
+    id      uuid.UUID
+    version int
+    name    string
+    age     int
+    photo   *delta.LazyScalar[[]byte]
+    cars    *delta.LazySlice[*Car, uuid.UUID]
 }
 
+// Constructor for new entities (eager loading)
 func NewPerson(name string, age int, photo []byte) *Person {
     photoScalar := delta.New(photo)
     carsSlice := delta.NewSlice([]*Car{})
     return &Person{
-        id:    uuid.New(),
-        name:  name,
-        age:   age,
-        photo: &photoScalar.LazyScalar,
-        cars:  &carsSlice.LazySlice,
+        id:      uuid.New(),
+        version: 0, // until is persisted is zero
+        name:    name,
+        age:     age,
+        photo:   &photoScalar.LazyScalar,
+        cars:    &carsSlice.LazySlice,
+    }
+}
+
+// Hydration for persistence (lazy loading)
+func HydratePerson(id uuid.UUID, version int, name string, age int, 
+    photo *delta.LazyScalar[[]byte], cars *delta.LazySlice[*Car, uuid.UUID]) *Person {
+    return &Person{
+        id:      id,
+        version: version,
+        name:    name,
+        age:     age,
+        photo:   photo,
+        cars:    cars,
     }
 }
 
@@ -146,6 +174,10 @@ func (p *Person) Photo() ([]byte, error) {
 
 func (p *Person) BuyCar(car *Car) {
     p.cars.Set(car)
+}
+
+func (p *Person) SellCar(carID uuid.UUID) {
+    p.cars.Remove(carID)
 }
 
 // Get delta for persistence
@@ -165,18 +197,52 @@ func (p *Person) Delta() *PersonDelta {
 ### Repository Pattern
 
 ```go
-func (r *Repository) Update(id uuid.UUID, fn func(*Person) error) error {
-    // Load aggregate with lazy fields
-    person := r.loadWithLazy(id)
-    
-    // Apply business logic
-    if err := fn(person); err != nil {
-        return err
+func (r *Repository) GetByID(id uuid.UUID) (*Person, error) {
+    record, exists := r.people[id]
+    if !exists {
+        return nil, fmt.Errorf("person not found")
     }
+    
+    // Create lazy loaders for expensive data
+    photoLazy := delta.NewLazy(func() ([]byte, error) {
+        return record.photo, nil
+    })
+    
+    carsLazy := delta.NewLazySlice(func(id uuid.UUID) ([]*Car, error) {
+        if id == uuid.Nil {
+            return r.loadAllCarsForOwner(id)
+        }
+        return r.loadCar(id)
+    })
+    
+    return HydratePerson(id, record.version, record.name, record.age, photoLazy, carsLazy), nil
+}
+
+func (r *Repository) Update(person *Person) error {
+    // Optimistic locking check
+    record := r.people[person.ID()]
+    if record.version != person.Version() {
+        return fmt.Errorf("concurrency conflict")
+    }
+    record.version++
+    
+    // Always save certain fields
+    record.name = person.Name()
+    record.age = person.Age()
     
     // Persist only changes
     delta := person.Delta()
-    return r.persistDelta(id, delta)
+    if delta.Photo != nil {
+        record.photo = delta.Photo.Value
+    }
+    if delta.Cars.Reset {
+        r.deleteAllCarsForOwner(person.ID())
+    }
+    for change := range delta.Cars.Items {
+        r.persistCarChange(person.ID(), change)
+    }
+    
+    return nil
 }
 ```
 
@@ -217,12 +283,19 @@ go get github.com/quintans/delta
 - Go 1.25.1 or higher
 - Compatible with modern Go features (generics, iterators)
 
+## Dependencies
+
+- `github.com/google/uuid` - UUID generation and handling
+- `github.com/quintans/ds` - Data structures (linkedmap for ordered collections)
+
 ## Examples
 
 See the [example](./example) directory for a complete working example demonstrating:
-- Person aggregate with lazy photo and cars
-- Repository pattern with delta persistence
-- CRUD operations with change tracking
+- Person aggregate with lazy photo and cars collection
+- Car entity with its own delta tracking (nested aggregates)
+- Repository pattern with optimistic locking and delta persistence
+- CRUD operations with efficient change tracking
+- Lazy loading of expensive data (photos, collections)
 
 Run the example:
 ```bash

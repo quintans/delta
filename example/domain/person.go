@@ -10,16 +10,17 @@ import (
 )
 
 type Person struct {
-	id    uuid.UUID
-	name  string
-	age   int
-	photo *delta.LazyScalar[[]byte]         // lazy-loaded photo
-	cars  *delta.LazySlice[*Car, uuid.UUID] // lazy-loaded cars
+	id      uuid.UUID
+	version int
+	name    string
+	age     int
+	photo   *delta.LazyScalar[[]byte]         // lazy-loaded photo
+	cars    *delta.LazySlice[*Car, uuid.UUID] // lazy-loaded cars
 }
 
 func NewPerson(name string, age int, photo []byte) *Person {
 	photoLazy := delta.New(photo)
-	carsLazy := delta.NewSlice[*Car, uuid.UUID]([]*Car{})
+	carsLazy := delta.NewSlice([]*Car{})
 	return &Person{
 		id:    uuid.New(),
 		name:  name,
@@ -29,18 +30,23 @@ func NewPerson(name string, age int, photo []byte) *Person {
 	}
 }
 
-func HydratePerson(id uuid.UUID, name string, age int, photo *delta.LazyScalar[[]byte], cars *delta.LazySlice[*Car, uuid.UUID]) *Person {
+func HydratePerson(id uuid.UUID, version int, name string, age int, photo *delta.LazyScalar[[]byte], cars *delta.LazySlice[*Car, uuid.UUID]) *Person {
 	return &Person{
-		id:    id,
-		name:  name,
-		age:   age,
-		photo: photo,
-		cars:  cars,
+		id:      id,
+		version: version,
+		name:    name,
+		age:     age,
+		photo:   photo,
+		cars:    cars,
 	}
 }
 
 func (p *Person) ID() uuid.UUID {
 	return p.id
+}
+
+func (p *Person) Version() int {
+	return p.version
 }
 
 func (p *Person) Name() string {

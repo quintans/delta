@@ -5,7 +5,6 @@ import (
 
 	"github.com/quintans/delta"
 	"github.com/quintans/delta/example/domain"
-	"github.com/quintans/delta/example/ports"
 
 	"github.com/google/uuid"
 )
@@ -34,32 +33,38 @@ func NewRepository() *Repository {
 		cars:   make(map[uuid.UUID]*CarRecord),
 	}
 }
-
-// GetByID retrieves a person by ID. The returned instance cannot be used to update the person.
-func (r *Repository) GetByID(id uuid.UUID) (*ports.PersonDTO, error) {
+func (r *Repository) GetByID(id uuid.UUID) (*domain.Person, error) {
 	record, exists := r.people[id]
 	if !exists {
 		return nil, fmt.Errorf("person not found")
 	}
-
-	var cars []*ports.DTO
-	for carID, carRecord := range r.cars {
-		if carRecord.ownerID == id {
-			cars = append(cars, &ports.DTO{
-				ID:   carID,
-				Make: carRecord.make,
-				Kms:  carRecord.kms,
-			})
+	photoLazy := delta.NewLazy(func() ([]byte, error) {
+		fmt.Println("*** Lazy-loading photo")
+		return record.photo, nil
+	})
+	carLazy := delta.NewLazySlice(func(id uuid.UUID) ([]*domain.Car, error) {
+		// if id is uuid.Nil, load all cars for the owner
+		if id == uuid.Nil {
+			fmt.Println("*** Lazy-loading cars")
+			var cars []*domain.Car
+			for carID, carRecord := range r.cars {
+				if carRecord.ownerID == id {
+					car := domain.HydrateCar(carID, carRecord.make, carRecord.kms)
+					cars = append(cars, car)
+				}
+			}
+			return cars, nil
 		}
-	}
-	return &ports.PersonDTO{
-		ID:    id,
-		Name:  record.name,
-		Age:   record.age,
-		Photo: record.photo,
-		Cars:  cars,
-	}, nil
 
+		carRecord, exists := r.cars[id]
+		if !exists {
+			return []*domain.Car{}, nil
+		}
+		car := domain.HydrateCar(id, carRecord.make, carRecord.kms)
+		return []*domain.Car{car}, nil
+	})
+	person := domain.HydratePerson(id, record.version, record.name, record.age, photoLazy, carLazy)
+	return person, nil
 }
 
 // Create creates a new person and its cars.
@@ -95,19 +100,10 @@ func (r *Repository) Create(p *domain.Person) error {
 // Update updates a person and its cars. It uses optimistic locking to prevent concurrent updates.
 //
 // This should be the only way to update a persisted person.
-func (r *Repository) Update(id uuid.UUID, callback func(p *domain.Person) error) error {
-	p, ver, err := r.getByID(id)
-	if err != nil {
-		return fmt.Errorf("failed to get person: %w", err)
-	}
-
-	if err = callback(p); err != nil {
-		return fmt.Errorf("failed to update person: %w", err)
-	}
-
+func (r *Repository) Update(p *domain.Person) error {
 	// optimistic locking check
-	record, exists := r.people[id]
-	if !exists && record.version != ver {
+	record, exists := r.people[p.ID()]
+	if !exists && record.version != p.Version() {
 		return fmt.Errorf("concurrency conflict")
 	}
 	record.version++
@@ -164,40 +160,6 @@ func (r *Repository) Delete(id uuid.UUID) error {
 	}
 
 	return nil
-}
-
-func (r *Repository) getByID(id uuid.UUID) (*domain.Person, int, error) {
-	record, exists := r.people[id]
-	if !exists {
-		return nil, 0, fmt.Errorf("person not found")
-	}
-	photoLazy := delta.NewLazy(func() ([]byte, error) {
-		fmt.Println("*** Lazy-loading photo")
-		return record.photo, nil
-	})
-	carLazy := delta.NewLazySlice(func(id uuid.UUID) ([]*domain.Car, error) {
-		// if id is uuid.Nil, load all cars for the owner
-		if id == uuid.Nil {
-			fmt.Println("*** Lazy-loading cars")
-			var cars []*domain.Car
-			for carID, carRecord := range r.cars {
-				if carRecord.ownerID == id {
-					car := domain.HydrateCar(carID, carRecord.make, carRecord.kms)
-					cars = append(cars, car)
-				}
-			}
-			return cars, nil
-		}
-
-		carRecord, exists := r.cars[id]
-		if !exists {
-			return []*domain.Car{}, nil
-		}
-		car := domain.HydrateCar(id, carRecord.make, carRecord.kms)
-		return []*domain.Car{car}, nil
-	})
-	person := domain.HydratePerson(id, record.name, record.age, photoLazy, carLazy)
-	return person, record.version, nil
 }
 
 func (r *Repository) saveCar(ownerID uuid.UUID, car *domain.Car, isNew bool) error {

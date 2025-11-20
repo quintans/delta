@@ -18,12 +18,15 @@ func main() {
 		panic(err)
 	}
 
-	err = repository.Update(person.ID(), func(p *domain.Person) error {
-		car := domain.NewCar("bmw", 10000)
-		p.BuyCar(car)
+	person, err = repository.GetByID(person.ID())
+	if err != nil {
+		panic(err)
+	}
 
-		return nil
-	})
+	car := domain.NewCar("bmw", 10000)
+	person.BuyCar(car)
+
+	err = repository.Update(person)
 	if err != nil {
 		panic(err)
 	}
@@ -41,7 +44,10 @@ func main() {
 	photo := retrievedPerson.Photo
 	fmt.Printf("Retrieved Person photo: %s\n", photo)
 
-	cars := retrievedPerson.Cars
+	cars, err := retrievedPerson.Cars()
+	if err != nil {
+		panic(err)
+	}
 	fmt.Println("Retrieved Person Cars:")
 	for _, car := range cars {
 		fmt.Printf(" - ID=%s, Make=%s, Kms=%d\n", car.ID, car.Make, car.Kms)
@@ -49,16 +55,15 @@ func main() {
 
 	// Update the person
 	fmt.Println("Updating person and buying and driving a car...")
-	repository.Update(person.ID(), func(p *domain.Person) error {
-		p.SetPhoto([]byte("New photo data"))
-		car := domain.NewCar("Toyota", 2000)
-		p.BuyCar(car)
-		err = p.DriveCar(car.ID(), 30)
-		if err != nil {
-			return fmt.Errorf("failed to drive car: %w", err)
-		}
-		return nil
-	})
+	person, err = repository.GetByID(person.ID())
+	person.SetPhoto([]byte("New photo data"))
+	car = domain.NewCar("Toyota", 2000)
+	person.BuyCar(car)
+	err = person.DriveCar(car.ID(), 30)
+	if err != nil {
+		panic(fmt.Errorf("failed to drive car: %w", err))
+	}
+	repository.Update(person)
 
 	// Delete the person
 	err = repository.Delete(person.ID())
