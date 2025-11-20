@@ -135,7 +135,7 @@ func (r *Repository) Update(p *domain.Person) error {
 				fmt.Println("*** car removed:", car.ID())
 				delete(r.cars, car.ID())
 			case delta.Added, delta.Modified:
-				fmt.Println("*** car added/modified:", car.ID(), ", added?:", item.Status == delta.Added)
+				fmt.Printf("*** car added/modified: %s, added?: %t\n", car.ID(), item.Status == delta.Added)
 				if err := r.saveCar(p.ID(), car, item.Status == delta.Added); err != nil {
 					return fmt.Errorf("failed to save car: %w", err)
 				}
